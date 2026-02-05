@@ -1,7 +1,6 @@
 """Service for sending callbacks to GUVI evaluation endpoint."""
 import requests
-from typing import List, Optional
-from groq import Groq
+from typing import List
 from app.models.session_state import SessionState, Message
 from app.models.intelligence import GuviCallbackPayload, ExtractedIntelligence
 from app.config import config
@@ -14,21 +13,6 @@ class CallbackService:
     def __init__(self):
         self.callback_url = config.GUVI_CALLBACK_URL
         self.sent_callbacks = set()  # Track sent callbacks to avoid duplicates
-        self._groq_client: Optional[Groq] = None
-        self._init_groq_client()
-    
-    def _init_groq_client(self):
-        """Initialize Groq client for LLM-based agent notes generation."""
-        if config.GROQ_API_KEY:
-            try:
-                self._groq_client = Groq(api_key=config.GROQ_API_KEY)
-                logger.info("CallbackService: Groq client initialized for agent notes generation")
-            except Exception as e:
-                logger.warning(f"CallbackService: Failed to initialize Groq: {e}. Will use fallback summary.")
-                self._groq_client = None
-        else:
-            logger.warning("CallbackService: GROQ_API_KEY not found - will use fallback summary")
-            self._groq_client = None
     
     def generate_agent_notes_summary(
         self,
@@ -37,128 +21,99 @@ class CallbackService:
         intelligence: ExtractedIntelligence
     ) -> str:
         """
-        Generate LLM-based natural language summary explaining why the agent thought it was a scam.
+        Generate comprehensive summary explaining why the agent thought it was a scam.
         
-        Uses LLM to analyze the full conversation and generate a concise explanation.
-        Falls back to structured summary if LLM is unavailable.
+        This summary includes:
+        - Conversation overview
+        - Scam detection reasoning
+        - Extracted intelligence (especially phone numbers)
+        - Key indicators that led to scam classification
         """
-        # Try LLM first if available
-        if self._groq_client:
-            try:
-                llm_summary = self._generate_llm_summary(
-                    session,
-                    conversation_history,
-                    intelligence
-                )
-                if llm_summary:
-                    return llm_summary
-            except Exception as e:
-                logger.warning(f"Failed to generate LLM summary, using fallback: {e}")
-        
-        # Fallback to structured summary
-        return self._generate_fallback_summary(session, conversation_history, intelligence)
-    
-    def _generate_llm_summary(
-        self,
-        session: SessionState,
-        conversation_history: List[Message],
-        intelligence: ExtractedIntelligence
-    ) -> Optional[str]:
-        """Generate LLM-based natural language explanation of why it's a scam."""
-        # Build conversation context
-        conversation_text = ""
-        if conversation_history:
-            conversation_text = "\n".join([
-                f"{'Scammer' if msg.sender == 'scammer' else 'User'}: {msg.text}"
-                for msg in conversation_history
-            ])
-        
-        # Build intelligence context
-        intelligence_context = []
-        if intelligence.phoneNumbers:
-            intelligence_context.append(f"Phone numbers extracted: {', '.join(intelligence.phoneNumbers)}")
-        if intelligence.upiIds:
-            intelligence_context.append(f"UPI IDs extracted: {', '.join(intelligence.upiIds[:5])}")
-        if intelligence.phishingLinks:
-            intelligence_context.append(f"Phishing links: {', '.join(intelligence.phishingLinks[:3])}")
-        if intelligence.bankAccounts:
-            intelligence_context.append(f"Bank accounts mentioned: {len(intelligence.bankAccounts)}")
-        
-        intelligence_text = "\n".join(intelligence_context) if intelligence_context else "No specific intelligence extracted"
-        
-        # Build prompt
-        prompt = f"""You are analyzing a scam conversation that was detected by an AI honeypot system.
-
-Full conversation history:
-{conversation_text}
-
-Extracted intelligence:
-{intelligence_text}
-
-Detection details:
-- Confidence score: {session.scamConfidence:.2f}
-- Detection method: {session.finalDecisionReason or 'LLM-based detection'}
-
-Your task: Write a concise, natural language explanation (2-4 sentences) explaining why this conversation was classified as a scam. Focus on:
-1. The key scam indicators in the conversation
-2. What the scammer was trying to achieve
-3. The extracted intelligence (especially phone numbers) and why they matter
-4. The overall scam pattern
-
-Write in clear, professional language. Be specific about what made this a scam.
-
-Explanation:"""
-
-        try:
-            response = self._groq_client.chat.completions.create(
-                model=config.GROQ_MODEL,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,  # Lower temperature for more consistent, factual output
-                max_tokens=300,  # Keep it concise
-                top_p=0.9,
-            )
-            
-            summary = response.choices[0].message.content.strip()
-            logger.info(f"Generated LLM summary for session {session.sessionId}")
-            return summary
-            
-        except Exception as e:
-            logger.error(f"Error generating LLM summary: {e}", exc_info=True)
-            return None
-    
-    def _generate_fallback_summary(
-        self,
-        session: SessionState,
-        conversation_history: List[Message],
-        intelligence: ExtractedIntelligence
-    ) -> str:
-        """Generate fallback structured summary when LLM is unavailable."""
         summary_parts = []
         
-        summary_parts.append(f"Scam detected with confidence {session.scamConfidence:.2f}. ")
+        # 1. Conversation Overview
+        summary_parts.append("CONVERSATION SUMMARY:")
+        summary_parts.append(f"Total messages exchanged: {session.totalMessagesExchanged}")
+        summary_parts.append(f"Scam detected with confidence: {session.scamConfidence:.2f}")
         
+        # 2. Detection Reasoning
         if session.finalDecisionReason:
-            summary_parts.append(f"Detection reason: {session.finalDecisionReason}. ")
+            summary_parts.append(f"\nDETECTION REASONING:")
+            summary_parts.append(session.finalDecisionReason)
         
-        # Key intelligence
-        if intelligence.phoneNumbers:
-            summary_parts.append(f"Extracted phone numbers: {', '.join(intelligence.phoneNumbers)}. ")
-        
-        if intelligence.upiIds:
-            summary_parts.append(f"Extracted UPI IDs: {', '.join(intelligence.upiIds[:3])}. ")
-        
-        if intelligence.phishingLinks:
-            summary_parts.append(f"Phishing links detected: {len(intelligence.phishingLinks)}. ")
-        
-        # Conversation highlights
+        # 3. Key Conversation Points
         if conversation_history:
+            summary_parts.append("\nKEY CONVERSATION POINTS:")
+            # Show first and last few messages to understand context
             scammer_messages = [msg for msg in conversation_history if msg.sender == "scammer"]
             if scammer_messages:
-                summary_parts.append(f"Conversation involved {len(scammer_messages)} messages from scammer, including requests for verification or sensitive information.")
+                if len(scammer_messages) <= 3:
+                    # Show all if few messages
+                    for i, msg in enumerate(scammer_messages, 1):
+                        summary_parts.append(f"  Message {i}: {msg.text[:150]}{'...' if len(msg.text) > 150 else ''}")
+                else:
+                    # Show first and last messages
+                    summary_parts.append(f"  Initial message: {scammer_messages[0].text[:150]}{'...' if len(scammer_messages[0].text) > 150 else ''}")
+                    summary_parts.append(f"  Latest message: {scammer_messages[-1].text[:150]}{'...' if len(scammer_messages[-1].text) > 150 else ''}")
         
-        return "".join(summary_parts).strip()
+        # 4. Extracted Intelligence (with emphasis on phone numbers)
+        summary_parts.append("\nEXTRACTED INTELLIGENCE:")
+        
+        # Phone numbers - emphasized
+        if intelligence.phoneNumbers:
+            summary_parts.append(f"  Phone Numbers ({len(intelligence.phoneNumbers)}): {', '.join(intelligence.phoneNumbers)}")
+        else:
+            summary_parts.append("  Phone Numbers: None detected")
+        
+        # Other intelligence
+        if intelligence.upiIds:
+            summary_parts.append(f"  UPI IDs ({len(intelligence.upiIds)}): {', '.join(intelligence.upiIds[:5])}{'...' if len(intelligence.upiIds) > 5 else ''}")
+        
+        if intelligence.bankAccounts:
+            summary_parts.append(f"  Bank Accounts ({len(intelligence.bankAccounts)}): {len(intelligence.bankAccounts)} account(s) detected")
+        
+        if intelligence.phishingLinks:
+            summary_parts.append(f"  Phishing Links ({len(intelligence.phishingLinks)}): {', '.join(intelligence.phishingLinks[:3])}{'...' if len(intelligence.phishingLinks) > 3 else ''}")
+        
+        if intelligence.suspiciousKeywords:
+            summary_parts.append(f"  Suspicious Keywords: {', '.join(intelligence.suspiciousKeywords[:10])}{'...' if len(intelligence.suspiciousKeywords) > 10 else ''}")
+        
+        # 5. Why it's a scam - synthesize from all available information
+        summary_parts.append("\nSCAM INDICATORS IDENTIFIED:")
+        scam_indicators = []
+        
+        if intelligence.phoneNumbers:
+            scam_indicators.append(f"Phone numbers shared ({len(intelligence.phoneNumbers)})")
+        
+        if intelligence.upiIds:
+            scam_indicators.append(f"UPI IDs requested/shared ({len(intelligence.upiIds)})")
+        
+        if intelligence.phishingLinks:
+            scam_indicators.append(f"Suspicious links provided ({len(intelligence.phishingLinks)})")
+        
+        if intelligence.bankAccounts:
+            scam_indicators.append("Bank account information requested")
+        
+        # Check for urgency/threats in conversation
+        conversation_text = " ".join([msg.text.lower() for msg in conversation_history])
+        if any(keyword in conversation_text for keyword in ['urgent', 'immediately', 'blocked', 'suspended', 'frozen']):
+            scam_indicators.append("Urgency/threat language detected")
+        
+        if any(keyword in conversation_text for keyword in ['verify', 'confirm', 'share', 'send', 'provide']):
+            scam_indicators.append("Requests for verification/sensitive information")
+        
+        if scam_indicators:
+            summary_parts.append("  " + "; ".join(scam_indicators))
+        else:
+            summary_parts.append("  General scam patterns detected based on conversation analysis")
+        
+        # 6. Additional agent notes if available
+        if session.agentNotes:
+            summary_parts.append("\nADDITIONAL AGENT OBSERVATIONS:")
+            for note in session.agentNotes[-5:]:  # Last 5 notes
+                summary_parts.append(f"  - {note}")
+        
+        return "\n".join(summary_parts)
     
     def send_callback(self, session: SessionState) -> bool:
         """
