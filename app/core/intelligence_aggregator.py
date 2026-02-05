@@ -33,12 +33,23 @@ class IntelligenceAggregator:
         upi_ids = self.patterns.UPI_ID.findall(text)
         intelligence.upiIds.extend(upi_ids)
         
-        # Extract phone numbers
+        # Extract phone numbers with improved normalization
         phone_numbers = self.patterns.PHONE_NUMBER.findall(text)
-        intelligence.phoneNumbers.extend([
-            f"+91{num}" if not num.startswith('+') else num
-            for num in phone_numbers if len(num) >= 10
-        ])
+        normalized_phones = []
+        for num in phone_numbers:
+            # Remove spaces, dashes, and other separators
+            cleaned = re.sub(r'[\s\-\(\)]', '', num)
+            # Remove country code prefixes if present
+            if cleaned.startswith('+91'):
+                cleaned = cleaned[3:]
+            elif cleaned.startswith('91') and len(cleaned) == 12:
+                cleaned = cleaned[2:]
+            elif cleaned.startswith('0') and len(cleaned) == 11:
+                cleaned = cleaned[1:]
+            # Validate: should be 10 digits starting with 6-9
+            if len(cleaned) == 10 and cleaned[0] in '6789':
+                normalized_phones.append(f"+91{cleaned}")
+        intelligence.phoneNumbers.extend(normalized_phones)
         
         # Extract phishing links
         urls = self.patterns.URL.findall(text)
@@ -66,10 +77,21 @@ class IntelligenceAggregator:
             intelligence.upiIds.extend(hist_upi)
             
             hist_phones = self.patterns.PHONE_NUMBER.findall(hist_text)
-            intelligence.phoneNumbers.extend([
-                f"+91{num}" if not num.startswith('+') else num
-                for num in hist_phones if len(num) >= 10
-            ])
+            normalized_hist_phones = []
+            for num in hist_phones:
+                # Remove spaces, dashes, and other separators
+                cleaned = re.sub(r'[\s\-\(\)]', '', num)
+                # Remove country code prefixes if present
+                if cleaned.startswith('+91'):
+                    cleaned = cleaned[3:]
+                elif cleaned.startswith('91') and len(cleaned) == 12:
+                    cleaned = cleaned[2:]
+                elif cleaned.startswith('0') and len(cleaned) == 11:
+                    cleaned = cleaned[1:]
+                # Validate: should be 10 digits starting with 6-9
+                if len(cleaned) == 10 and cleaned[0] in '6789':
+                    normalized_hist_phones.append(f"+91{cleaned}")
+            intelligence.phoneNumbers.extend(normalized_hist_phones)
             
             hist_urls = self.patterns.URL.findall(hist_text)
             intelligence.phishingLinks.extend(hist_urls)
