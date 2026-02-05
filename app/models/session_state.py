@@ -1,6 +1,6 @@
 """Session state models."""
-from typing import List, Optional, Dict
-from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Union
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from app.models.intelligence import ExtractedIntelligence
 
@@ -9,7 +9,26 @@ class Message(BaseModel):
     """Represents a single message in the conversation."""
     sender: str = Field(..., description="Message sender: 'scammer' or 'user'")
     text: str = Field(..., description="Message content")
-    timestamp: str = Field(..., description="ISO-8601 timestamp")
+    timestamp: Union[int, str] = Field(..., description="Timestamp as Unix timestamp (int) or ISO-8601 string")
+    
+    @field_validator('timestamp', mode='before')
+    @classmethod
+    def normalize_timestamp(cls, v):
+        """Normalize timestamp to string format for internal use."""
+        if isinstance(v, int):
+            # Convert Unix timestamp (milliseconds) to ISO-8601 string
+            try:
+                dt = datetime.fromtimestamp(v / 1000.0)
+                return dt.isoformat() + 'Z'
+            except (ValueError, OSError):
+                # Fallback: use current time if conversion fails
+                return datetime.now().isoformat() + 'Z'
+        elif isinstance(v, str):
+            # Already a string, return as-is
+            return v
+        else:
+            # Unknown type, convert to string
+            return str(v)
 
 
 class Metadata(BaseModel):
