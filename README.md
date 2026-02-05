@@ -8,7 +8,6 @@ An AI-powered honeypot system that detects scam messages, autonomously engages s
 - **Multi-Agent System** - Persona, Strategy, Intelligence Extraction, and Safety Guard agents
 - **Human-like Engagement** - Maintains believable persona throughout conversations
 - **Intelligence Extraction** - Extracts UPI IDs, phone numbers, phishing links, bank accounts
-- **Mandatory Callback** - Sends final intelligence to GUVI evaluation endpoint
 - **Safety & Ethics** - Built-in guardrails to prevent unethical behavior
 
 ## 🚀 Quick Start
