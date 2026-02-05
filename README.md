@@ -91,14 +91,7 @@ app/
 3. **Extract** - Passively extracts intelligence (UPI, phone, links, etc.)
 4. **Respond** - Generates human-like responses maintaining persona
 5. **Validate** - Safety guard ensures ethical compliance
-6. **Callback** - Sends final intelligence to GUVI endpoint when conversation ends
-
-## 📚 Documentation
-
-- [Quick Start Guide](QUICK_START.md) - Detailed setup instructions
-- [Configuration Guide](CONFIGURATION_GUIDE.md) - Complete configuration reference
-- [Architecture Flow](ARCHITECTURE_FLOW.md) - Detailed architecture documentation
-- [Test Scenarios](TEST_SCENARIOS.md) - Testing scenarios and examples
+6. **Callback** - Sends final intelligence to your api endpoint(make an api to receive callback of information extracted)
 
 ## 🛡️ Safety & Ethics
 
