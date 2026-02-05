@@ -1,5 +1,6 @@
 """API routes."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Query
+from typing import Optional
 from app.api.schemas import HoneypotRequest, HoneypotResponse
 from app.dependencies import verify_api_key
 from app.core.orchestrator import orchestrator
@@ -8,17 +9,27 @@ from app.core.scam_detector import scam_detector
 from app.services.callback_service import callback_service
 from app.agents.safety_guard import safety_guard
 from app.utils.logger import logger
+from app.models.session_state import Message, Metadata
 
 router = APIRouter()
 
 
 @router.post("/honeypot/message", response_model=HoneypotResponse)
+@router.get("/honeypot/message", response_model=HoneypotResponse)
 async def process_message(
-    request: HoneypotRequest,
-    api_key_valid: bool = Depends(verify_api_key)
+    http_request: Request,
+    request: Optional[HoneypotRequest] = None,
+    api_key_valid: bool = Depends(verify_api_key),
+    # GET parameters (for GET requests)
+    sessionId: Optional[str] = Query(None, alias="sessionId"),
+    text: Optional[str] = Query(None, alias="text"),
+    sender: Optional[str] = Query("scammer", alias="sender"),
+    timestamp: Optional[str] = Query(None, alias="timestamp")
 ) -> HoneypotResponse:
     """
     Main endpoint for processing scam messages.
+    
+    Supports both POST (with JSON body) and GET (with query parameters).
     
     This endpoint:
     1. Receives incoming messages
@@ -28,6 +39,37 @@ async def process_message(
     5. Returns human-like response
     """
     try:
+        # Handle GET requests with query parameters
+        if http_request and http_request.method == "GET":
+            if not sessionId or not text:
+                return HoneypotResponse(
+                    status="error",
+                    error="GET requests require sessionId and text query parameters"
+                )
+            
+            # Build request from query parameters
+            request = HoneypotRequest(
+                sessionId=sessionId,
+                message=Message(
+                    sender=sender or "scammer",
+                    text=text,
+                    timestamp=timestamp or "2026-01-21T10:15:30Z"
+                ),
+                conversationHistory=[],
+                metadata=Metadata(
+                    channel="SMS",
+                    language="English",
+                    locale="IN"
+                ) if timestamp else None
+            )
+        
+        # Ensure request is provided
+        if not request:
+            return HoneypotResponse(
+                status="error",
+                error="Request body or query parameters required"
+            )
+        
         # Get or create session
         session = session_manager.get_or_create_session(request.sessionId)
         
